@@ -110,7 +110,7 @@ Logs are timestamped and include:
 
 ---
 
-## Updates & Support
+## Support
 
 ### ⚠️ Limited Support Notice
 
@@ -121,17 +121,6 @@ Logs are timestamped and include:
 - Bug fixes are not guaranteed
 - Feature requests may not be implemented
 
-### Update Link
-
-Check for updates manually at:
-```
-https://github.com/FRYingMyBrain/DiscordStatusStalker
-```
-
-To update:
-1. Download the latest plugin file from the repository
-2. Replace the old plugin file in your plugins folder
-3. Reload Discord or restart the client
 
 ### Troubleshooting
 
