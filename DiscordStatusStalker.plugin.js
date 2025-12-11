@@ -1,5 +1,5 @@
 /**
- * @name StatusVCMonitorContext
+ * @name DiscordStatusStalker
  * @author FryingMyBrain
  * @version 4.5.0
  * @description Track per-user status & VC changes, with right-click user menu toggle (guilds + DMs), inline log viewer, and alerts when tracked users share a VC.
@@ -335,7 +335,7 @@ module.exports = class StatusVCMonitorContext {
                     React.createElement(
                         "div",
                         { style: { marginBottom: "6px" } },
-                        "Right-click a user anywhere and pick "View StatusVC logs" to open a popup."
+                        "Right-click a user anywhere and pick “View StatusVC logs” to open a popup."
                     ),
                     React.createElement(
                         "div",
@@ -407,4 +407,150 @@ module.exports = class StatusVCMonitorContext {
                         {
                             style: { width: "100%", marginTop: "4px", marginBottom: "10px" },
                             value: selectedUser,
-                            onChange: (e) =>
+                            onChange: (e) => {
+                                plugin.settings.selectedUser = e.target.value;
+                                plugin.saveSettings();
+                                this.forceUpdate();
+                            }
+                        },
+                        React.createElement("option", { value: "" }, "— none —"),
+                        trackedUsers.map(id =>
+                            React.createElement("option", { key: id, value: id }, id)
+                        )
+                    ),
+                    React.createElement(
+                        "div",
+                        { style: { marginBottom: "6px", fontWeight: "bold" } },
+                        "Logs for selected user:"
+                    ),
+                    React.createElement(
+                        "div",
+                        {
+                            style: {
+                                whiteSpace: "pre-wrap",
+                                fontFamily: "monospace",
+                                fontSize: "12px",
+                                maxHeight: "300px",
+                                overflowY: "auto",
+                                padding: "6px",
+                                backgroundColor: "rgba(0,0,0,0.2)",
+                                borderRadius: "4px"
+                            }
+                        },
+                        plugin.getLogText(selectedUser)
+                    )
+                );
+            }
+        }
+
+        return React.createElement(Panel, null);
+    }
+
+    refreshSettingsPanel() {
+        if (this._settingsPanelForceUpdate) {
+            try { this._settingsPanelForceUpdate(); } catch {}
+        }
+    }
+
+    /* ===== lifecycle & events ===== */
+
+    start() {
+        this.getModules();
+        if (!this.UserStore || !this.PresenceStore || !this.Dispatcher) {
+            BdApi.UI.showToast(`${PLUGIN_NAME}: missing core modules`, { type: "error" });
+            return;
+        }
+
+        this.patchUserContextMenu();
+
+        this.presenceHandler = () => {
+            for (const userId of Object.keys(this.settings.trackedUsers)) {
+                const newStatus = this.PresenceStore.getStatus(userId);
+                if (newStatus === this.prevStatus[userId]) continue;
+                const user = this.UserStore.getUser(userId);
+                const username = user?.username || userId;
+                this.prevStatus[userId] = newStatus;
+                const statusText = newStatus || "unknown";
+                this.log(userId, `${username} changed status to ${statusText}`, true);
+            }
+        };
+        this.PresenceStore.addChangeListener(this.presenceHandler);
+
+        this.voiceHandler = (event) => {
+            let entries = [];
+            if (Array.isArray(event)) entries = event;
+            else if (Array.isArray(event?.voiceStates)) entries = event.voiceStates;
+            else if (event?.voice_state) entries = [event.voice_state];
+            else if (event?.voiceState) entries = [event.voiceState];
+            else if (event?.userId || event?.user_id) entries = [event];
+            if (!entries.length) return;
+
+            for (const entry of entries) {
+                const userId = entry.userId || entry.user_id;
+                if (!userId || !this.isTracked(userId)) continue;
+
+                const newChannelId =
+                    entry.channelId || entry.channel_id || this.getCurrentVoiceChannelId(userId);
+                const oldChannelId = this.prevVoiceChannelId[userId];
+
+                if (newChannelId === oldChannelId) continue;
+
+                const user = this.UserStore.getUser(userId);
+                const username = user?.username || userId;
+
+                if (!oldChannelId && newChannelId) {
+                    const ch = this.ChannelStore?.getChannel(newChannelId);
+                    this.log(userId, `${username} joined VC "${ch?.name || newChannelId}"`, true);
+                } else if (oldChannelId && !newChannelId) {
+                    const ch = this.ChannelStore?.getChannel(oldChannelId);
+                    this.log(userId, `${username} left VC "${ch?.name || oldChannelId}"`, true);
+                } else if (oldChannelId && newChannelId && oldChannelId !== newChannelId) {
+                    const oldCh = this.ChannelStore?.getChannel(oldChannelId);
+                    const newCh = this.ChannelStore?.getChannel(newChannelId);
+                    this.log(
+                        userId,
+                        `${username} moved VC "${oldCh?.name || oldChannelId}" -> "${newCh?.name || newChannelId}"`,
+                        true
+                    );
+                }
+
+                this.prevVoiceChannelId[userId] = newChannelId || null;
+
+                // Update occupants and check for pair alerts in the channel they just moved to
+                this.updateChannelOccupantsFor(userId, oldChannelId, newChannelId);
+                if (newChannelId) this.checkTrackedPairsInVC(newChannelId);
+            }
+        };
+
+        this.Dispatcher.subscribe("VOICE_STATE_UPDATES", this.voiceHandler);
+        this.Dispatcher.subscribe("VOICE_STATE_UPDATE", this.voiceHandler);
+
+        BdApi.UI.showToast(`${PLUGIN_NAME} started`, { type: "success" });
+    }
+
+    getCurrentVoiceChannelId(userId) {
+        if (!userId || !this.VoiceStateStore) return null;
+        try {
+            if (this.VoiceStateStore.getUserVoiceChannelId)
+                return this.VoiceStateStore.getUserVoiceChannelId(userId);
+            if (this.VoiceStateStore.getVoiceStateForUser)
+                return this.VoiceStateStore.getVoiceStateForUser(userId)?.channelId || null;
+            if (this.VoiceStateStore.getVoiceState)
+                return this.VoiceStateStore.getVoiceState(userId)?.channelId || null;
+        } catch {
+            return null;
+        }
+        return null;
+    }
+
+    stop() {
+        if (this.PresenceStore && this.presenceHandler)
+            this.PresenceStore.removeChangeListener(this.presenceHandler);
+        if (this.Dispatcher && this.voiceHandler) {
+            this.Dispatcher.unsubscribe("VOICE_STATE_UPDATES", this.voiceHandler);
+            this.Dispatcher.unsubscribe("VOICE_STATE_UPDATE", this.voiceHandler);
+        }
+        this.unpatchContextMenus();
+        BdApi.UI.showToast(`${PLUGIN_NAME} stopped`, { type: "info" });
+    }
+};
