@@ -42,7 +42,7 @@ Users of this plugin are solely responsible for:
 - ✅ Alerts when multiple tracked users join the same voice channel
 - ✅ JSON export functionality for logs
 - ✅ Log clearing and management
-- ✅ Persistent data storage
+- ✅ Persistent data storage -meh, when you stop tracking someone all logs of said person get deleted permanently, more like still exist after restarts
 
 ---
 
