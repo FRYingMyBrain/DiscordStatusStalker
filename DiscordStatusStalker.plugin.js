@@ -3,6 +3,7 @@
  * @author FryingMyBrain
  * @version 4.5.0
  * @description Track per-user status & VC changes, with right-click user menu toggle (guilds + DMs), inline log viewer, and alerts when tracked users share a VC.
+  * @updateUrl https://raw.githubusercontent.com/FRYingMyBrain/DiscordStatusStalker/main/DiscordStatusStalker.plugin.js
  */
 
 const PLUGIN_NAME = "StatusVCMonitorContext";
